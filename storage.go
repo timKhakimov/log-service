@@ -273,10 +273,15 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 			}
 		}
 
+		log.Printf("DEBUG timestamp - Type: %T, Value: %v, String attempt: %q", 
+			doc["timestamp"], doc["timestamp"], fmt.Sprintf("%v", doc["timestamp"]))
+
 		if timestamp, ok := doc["timestamp"].(string); ok {
 			record.Timestamp = timestamp
+			log.Printf("DEBUG timestamp OK as string: %s", timestamp)
 		} else {
 			record.Timestamp = ""
+			log.Printf("DEBUG timestamp FAILED - not a string!")
 			message := FormatAlert("🚨 Log Service: Missing Timestamp", []AlertField{
 				{Label: "Type", Value: fmt.Sprintf("%T", doc["timestamp"])},
 				{Label: "Value", Value: fmt.Sprintf("%v", doc["timestamp"])},
