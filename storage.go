@@ -93,7 +93,7 @@ func (s *LogStorage) initDB() error {
 		},
 		{
 			Keys: bson.D{{Key: "created_at", Value: 1}},
-			Options: options.Index().SetExpireAfterSeconds(60),
+			Options: options.Index().SetExpireAfterSeconds(604800),
 		},
 	}
 	
