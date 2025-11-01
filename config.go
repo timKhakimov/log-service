@@ -12,13 +12,12 @@ import (
 type Config struct {
     BindAddr       string
     Port           int
-    LogDir         string
+    DBPath         string
     FlushLines     int
     FlushInterval  time.Duration
     MaxQueue       int
     MaxRetries     int
     RetryBackoff   BackoffConfig
-    DurableSync    time.Duration
     BotToken       string
     BotChatIDs     []string
     BotTimeout     time.Duration
@@ -33,12 +32,11 @@ type BackoffConfig struct {
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		BindAddr:      getEnvString("BIND_ADDR", "0.0.0.0"),
-		LogDir:        getEnvString("LOG_DIR", "./logs"),
+		DBPath:        getEnvString("DB_PATH", "./logs.db"),
 		FlushLines:    getEnvInt("FLUSH_LINES", 500),
 		FlushInterval: getEnvDuration("FLUSH_MS", 2000*time.Millisecond),
 		MaxQueue:      getEnvInt("MAX_QUEUE", 100000),
 		MaxRetries:    getEnvInt("MAX_RETRIES", 3),
-		DurableSync:   getEnvDuration("DURABLE_SYNC_MS", 0),
 	}
     cfg.Port = getEnvInt("PORT", 9010)
     cfg.RetryBackoff = BackoffConfig{
@@ -69,9 +67,6 @@ func LoadConfig() (Config, error) {
     }
     if cfg.RetryBackoff.Factor < 1 {
         return Config{}, errors.New("retry backoff factor must be >= 1")
-    }
-    if cfg.DurableSync < 0 {
-        return Config{}, errors.New("DURABLE_SYNC_MS cannot be negative")
     }
     return cfg, nil
 }

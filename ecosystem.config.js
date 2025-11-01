@@ -11,7 +11,7 @@ module.exports = {
       env: {
         PORT: 9010,
         BIND_ADDR: '0.0.0.0',
-        LOG_DIR: './logs',
+        DB_PATH: './logs.db',
         FLUSH_LINES: 500,
         FLUSH_MS: 2000,
         MAX_QUEUE: 100000,
