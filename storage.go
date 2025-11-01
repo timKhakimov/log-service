@@ -92,8 +92,8 @@ func (s *LogStorage) initDB() error {
 			Keys: bson.D{{Key: "metadata.accountId", Value: 1}},
 		},
 		{
-			Keys: bson.D{{Key: "_id", Value: 1}},
-			Options: options.Index().SetExpireAfterSeconds(604800),
+			Keys: bson.D{{Key: "created_at", Value: 1}},
+			Options: options.Index().SetExpireAfterSeconds(60),
 		},
 	}
 	
@@ -193,15 +193,18 @@ func (s *LogStorage) insertBatch(records []LogRecord) error {
 	}
 
 	docs := make([]interface{}, len(records))
+	now := time.Now()
+	
 	for i, record := range records {
 		timestamp, _ := time.Parse(time.RFC3339Nano, record.Timestamp)
 		
 		docs[i] = bson.M{
-			"service":   record.Service,
-			"level":     string(record.Level),
-			"message":   record.Message,
-			"metadata":  record.Metadata,
-			"timestamp": timestamp,
+			"service":    record.Service,
+			"level":      string(record.Level),
+			"message":    record.Message,
+			"metadata":   record.Metadata,
+			"timestamp":  timestamp,
+			"created_at": now,
 		}
 	}
 
