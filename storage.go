@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -20,29 +18,18 @@ type LogStorage struct {
 	cfg        Config
 	client     *mongo.Client
 	collection *mongo.Collection
-	queue      chan LogRecord
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
 	notifier   *BotNotifier
 }
 
 func NewLogStorage(cfg Config, notifier *BotNotifier) *LogStorage {
-	ctx, cancel := context.WithCancel(context.Background())
 	s := &LogStorage{
 		cfg:      cfg,
-		queue:    make(chan LogRecord, cfg.MaxQueue),
-		ctx:      ctx,
-		cancel:   cancel,
 		notifier: notifier,
 	}
 
 	if err := s.initDB(); err != nil {
 		log.Fatalf("failed to init database: %v", err)
 	}
-
-	s.wg.Add(1)
-	go s.batchWriter()
 
 	return s
 }
@@ -92,104 +79,33 @@ func (s *LogStorage) initDB() error {
 	return nil
 }
 
-func (s *LogStorage) Enqueue(record LogRecord) error {
-	select {
-	case <-s.ctx.Done():
-		return errors.New("storage stopped")
-	case s.queue <- record:
-		return nil
-	default:
-		log.Printf("🚨 Queue full! Size: %d", cap(s.queue))
-		return errors.New("queue full")
-	}
-}
+func (s *LogStorage) Insert(record LogRecord) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-func (s *LogStorage) batchWriter() {
-	defer s.wg.Done()
-	
-	buffer := make([]LogRecord, 0, 500)
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	flush := func() {
-		if len(buffer) == 0 {
-			return
-		}
-		
-		log.Printf("📦 Flushing batch: %d records", len(buffer))
-		
-		if err := s.insertBatch(buffer); err != nil {
-			log.Printf("❌ Batch insert failed: %v", err)
-			message := FormatAlert("⚠️ Log Service: Batch Insert Failed", []AlertField{
-				{Label: "Count", Value: fmt.Sprintf("%d", len(buffer))},
-				{Label: "Error", Value: err.Error()},
-			})
-			s.notify(message)
-		} else {
-			log.Printf("✅ Batch inserted successfully: %d records", len(buffer))
-		}
-		
-		buffer = buffer[:0]
+	doc := bson.M{
+		"service":    record.Service,
+		"level":      string(record.Level),
+		"message":    record.Message,
+		"metadata":   record.Metadata,
+		"timestamp":  record.Timestamp,
+		"created_at": time.Now(),
 	}
 
-	for {
-		select {
-		case record := <-s.queue:
-			buffer = append(buffer, record)
-			if len(buffer) >= 500 {
-				flush()
-			}
-		case <-ticker.C:
-			flush()
-		case <-s.ctx.Done():
-			for len(s.queue) > 0 {
-				buffer = append(buffer, <-s.queue)
-			}
-			flush()
-			return
-		}
+	_, err := s.collection.InsertOne(ctx, doc)
+	if err != nil {
+		return fmt.Errorf("insert: %w", err)
 	}
+
+	return nil
 }
 
 func (s *LogStorage) Close() error {
-	s.cancel()
-	s.wg.Wait()
-	
 	if s.client != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return s.client.Disconnect(ctx)
 	}
-	return nil
-}
-
-func (s *LogStorage) insertBatch(records []LogRecord) error {
-	if len(records) == 0 {
-		return nil
-	}
-
-	docs := make([]interface{}, len(records))
-	now := time.Now()
-	
-	for i, record := range records {
-		docs[i] = bson.M{
-			"service":    record.Service,
-			"level":      string(record.Level),
-			"message":    record.Message,
-			"metadata":   record.Metadata,
-			"timestamp":  record.Timestamp,
-			"created_at": now,
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	_, err := s.collection.InsertMany(ctx, docs)
-	if err != nil {
-		return fmt.Errorf("insert many: %w", err)
-	}
-
 	return nil
 }
 
@@ -292,23 +208,6 @@ func (s *LogStorage) GetServices() ([]string, error) {
 	}
 
 	return result, nil
-}
-
-func (s *LogStorage) Shutdown(ctx context.Context) {
-	s.cancel()
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		log.Printf("⚠️  Shutdown timeout")
-	}
-	if s.client != nil {
-		s.client.Disconnect(context.Background())
-	}
 }
 
 func (s *LogStorage) notify(message string) {
