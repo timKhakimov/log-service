@@ -291,7 +291,10 @@
 
             const html = allLogs.map((log, idx) => {
                 const levelClass = `level-${log.level}`;
-                const date = new Date(log.timestamp);
+                
+                // Remove nanoseconds - JS only supports milliseconds
+                const timestamp = log.timestamp.replace(/(\.\d{3})\d+([\+\-])/, '$1$2');
+                const date = new Date(timestamp);
                 
                 const hours = String(date.getUTCHours()).padStart(2, '0');
                 const minutes = String(date.getUTCMinutes()).padStart(2, '0');
