@@ -281,8 +281,13 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		} else if ts, ok := doc["timestamp"].(primitive.DateTime); ok {
 			record.Timestamp = ts.Time().Format(time.RFC3339Nano)
 		} else {
-			log.Printf("WARNING: Unknown timestamp type: %T, value: %v", doc["timestamp"], doc["timestamp"])
-			record.Timestamp = time.Now().Format(time.RFC3339Nano)
+			record.Timestamp = ""
+			message := FormatAlert("🚨 Log Service: Missing Timestamp", []AlertField{
+				{Label: "Type", Value: fmt.Sprintf("%T", doc["timestamp"])},
+				{Label: "Value", Value: fmt.Sprintf("%v", doc["timestamp"])},
+				{Label: "Service", Value: record.Service},
+			})
+			s.notify(message)
 		}
 
 		records = append(records, record)
