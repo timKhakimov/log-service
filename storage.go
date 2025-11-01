@@ -25,8 +25,6 @@ type LogStorage struct {
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	notifier   *BotNotifier
-	buffer     []LogRecord
-	bufMu      sync.Mutex
 }
 
 func NewLogStorage(cfg Config, notifier *BotNotifier) *LogStorage {
@@ -37,24 +35,14 @@ func NewLogStorage(cfg Config, notifier *BotNotifier) *LogStorage {
 		ctx:      ctx,
 		cancel:   cancel,
 		notifier: notifier,
-		buffer:   make([]LogRecord, 0, cfg.FlushLines),
 	}
 
 	if err := s.initDB(); err != nil {
 		log.Fatalf("failed to init database: %v", err)
 	}
 
-	numWorkers := 16
-	if cfg.MaxQueue < 1000 {
-		numWorkers = 4
-	}
-	for i := 0; i < numWorkers; i++ {
-		s.wg.Add(1)
-		go s.worker()
-	}
-
 	s.wg.Add(1)
-	go s.flushLoop()
+	go s.batchWriter()
 
 	return s
 }
@@ -116,80 +104,63 @@ func (s *LogStorage) Enqueue(record LogRecord) error {
 	}
 }
 
-func (s *LogStorage) worker() {
+func (s *LogStorage) batchWriter() {
 	defer s.wg.Done()
-	for {
-		select {
-		case record := <-s.queue:
-			s.addToBuffer(record)
-		case <-s.ctx.Done():
-			s.drainQueue()
-			return
-		}
-	}
-}
-
-func (s *LogStorage) drainQueue() {
-	for {
-		select {
-		case record := <-s.queue:
-			s.addToBuffer(record)
-		default:
-			s.flushBuffer()
-			return
-		}
-	}
-}
-
-func (s *LogStorage) addToBuffer(record LogRecord) {
-	s.bufMu.Lock()
-	s.buffer = append(s.buffer, record)
-	shouldFlush := len(s.buffer) >= s.cfg.FlushLines
-	s.bufMu.Unlock()
-
-	if shouldFlush {
-		s.flushBuffer()
-	}
-}
-
-func (s *LogStorage) flushLoop() {
-	defer s.wg.Done()
-	ticker := time.NewTicker(s.cfg.FlushInterval)
+	
+	buffer := make([]LogRecord, 0, 500)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
+	flush := func() {
+		if len(buffer) == 0 {
+			return
+		}
+		
+		log.Printf("📦 Flushing batch: %d records", len(buffer))
+		
+		if err := s.insertBatch(buffer); err != nil {
+			log.Printf("❌ Batch insert failed: %v", err)
+			message := FormatAlert("⚠️ Log Service: Batch Insert Failed", []AlertField{
+				{Label: "Count", Value: fmt.Sprintf("%d", len(buffer))},
+				{Label: "Error", Value: err.Error()},
+			})
+			s.notify(message)
+		} else {
+			log.Printf("✅ Batch inserted successfully: %d records", len(buffer))
+		}
+		
+		buffer = buffer[:0]
+	}
+
 	for {
 		select {
+		case record := <-s.queue:
+			buffer = append(buffer, record)
+			if len(buffer) >= 500 {
+				flush()
+			}
 		case <-ticker.C:
-			s.flushBuffer()
+			flush()
 		case <-s.ctx.Done():
+			for len(s.queue) > 0 {
+				buffer = append(buffer, <-s.queue)
+			}
+			flush()
 			return
 		}
 	}
 }
 
-func (s *LogStorage) flushBuffer() {
-	s.bufMu.Lock()
-	if len(s.buffer) == 0 {
-		s.bufMu.Unlock()
-		return
+func (s *LogStorage) Close() error {
+	s.cancel()
+	s.wg.Wait()
+	
+	if s.client != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return s.client.Disconnect(ctx)
 	}
-	batch := make([]LogRecord, len(s.buffer))
-	copy(batch, s.buffer)
-	s.buffer = s.buffer[:0]
-	s.bufMu.Unlock()
-
-	log.Printf("📦 Flushing batch: %d records", len(batch))
-
-	if err := s.insertBatch(batch); err != nil {
-		log.Printf("❌ Batch insert failed: %v", err)
-		message := FormatAlert("Log Service: Batch Insert Failed", []AlertField{
-			{Label: "Count", Value: fmt.Sprintf("%d", len(batch))},
-			{Label: "Error", Value: err.Error()},
-		})
-		s.notify(message)
-	} else {
-		log.Printf("✅ Batch inserted successfully: %d records", len(batch))
-	}
+	return nil
 }
 
 func (s *LogStorage) insertBatch(records []LogRecord) error {

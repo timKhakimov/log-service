@@ -76,25 +76,40 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 	
 	start := time.Now()
 	
+	log.Printf("📨 Received log request from %s", r.RemoteAddr)
+	
 	var req LogRequest
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 10<<20))
 	if err := decoder.Decode(&req); err != nil {
+		log.Printf("❌ JSON decode failed: %v", err)
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	
+	log.Printf("📋 Parsed request: service=%s, level=%s, message=%s", req.Service, req.Level, req.Message)
+	
 	if err := req.Validate(); err != nil {
+		log.Printf("❌ Validation failed: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	
 	record, err := req.ToRecord(time.Now())
 	if err != nil {
+		log.Printf("❌ ToRecord failed: %v", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	
+	log.Printf("✅ Record created, enqueueing...")
+	
 	if err := s.storage.Enqueue(record); err != nil {
+		log.Printf("❌ Enqueue failed: %v", err)
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	
+	log.Printf("✅ Enqueued successfully, queue size: %d", len(s.storage.queue))
 	
 	duration := time.Since(start)
 	if duration > 3*time.Second {
