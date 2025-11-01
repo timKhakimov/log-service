@@ -303,7 +303,6 @@ func (s *LogStorage) Shutdown(ctx context.Context) {
 	}()
 	select {
 	case <-done:
-		s.flushBuffer()
 	case <-ctx.Done():
 		log.Printf("⚠️  Shutdown timeout")
 	}
