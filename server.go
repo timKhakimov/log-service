@@ -47,7 +47,7 @@ func NewServer(cfg Config, storage *LogStorage) *Server {
 }
 
 func (s *Server) Start() error {
-	log.Printf("log-service listening on %s", s.cfg.Addr())
+	log.Printf("🚀 Log-service started on %s", s.cfg.Addr())
 	return s.http.ListenAndServe()
 }
 
@@ -98,10 +98,10 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 	
 	duration := time.Since(start)
 	if duration > 3*time.Second {
-		message := FormatAlert("Log Service: Slow Write", []AlertField{
+		message := FormatAlert("⚠️  Log Service: Slow Write", []AlertField{
 			{Label: "Duration", Value: duration.String()},
 			{Label: "Service", Value: req.Service},
-			{Label: "Queue Size", Value: fmt.Sprintf("%d", len(s.storage.queue))},
+			{Label: "Queue", Value: fmt.Sprintf("%d", len(s.storage.queue))},
 		})
 		s.storage.notify(message)
 	}
@@ -183,9 +183,7 @@ func (s *Server) handleGetServices(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		log.Printf("response encode error: %v", err)
-	}
+	json.NewEncoder(w).Encode(payload)
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

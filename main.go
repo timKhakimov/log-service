@@ -39,9 +39,8 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		message := FormatAlert("Log Service: Shutdown Error", []AlertField{{Label: "Error", Value: err.Error()}})
+		message := FormatAlert("⚠️  Log Service: Shutdown Error", []AlertField{{Label: "Error", Value: err.Error()}})
 		notifyWithNotifier(notifier, message)
-		log.Printf("shutdown error: %v", err)
 	}
 	storage.Shutdown(shutdownCtx)
 }
@@ -104,12 +103,11 @@ func parseChatIDs(raw string) []string {
 func recoverPanic() {
 	if r := recover(); r != nil {
 		stack := string(debug.Stack())
-		message := FormatAlert("Log Service: PANIC", []AlertField{
+		message := FormatAlert("🚨 Log Service: PANIC", []AlertField{
 			{Label: "Error", Value: fmt.Sprintf("%v", r)},
 			{Label: "Stack", Value: stack},
 		})
 		notifyCritical(message)
-		log.Printf("PANIC: %v\n%s", r, stack)
 		panic(r)
 	}
 }
@@ -117,12 +115,11 @@ func recoverPanic() {
 func recoverPanicWithNotifier(notifier *BotNotifier) {
 	if r := recover(); r != nil {
 		stack := string(debug.Stack())
-		message := FormatAlert("Log Service: PANIC", []AlertField{
+		message := FormatAlert("🚨 Log Service: PANIC", []AlertField{
 			{Label: "Error", Value: fmt.Sprintf("%v", r)},
 			{Label: "Stack", Value: stack},
 		})
 		notifyWithNotifier(notifier, message)
-		log.Printf("PANIC: %v\n%s", r, stack)
 		panic(r)
 	}
 }

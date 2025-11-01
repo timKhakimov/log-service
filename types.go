@@ -25,13 +25,11 @@ type LogRequest struct {
 }
 
 type LogRecord struct {
-	Service      string         `json:"-"`
-	Level        LogLevel       `json:"level"`
-	Message      string         `json:"message"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
-	Timestamp    time.Time      `json:"-"`
-	ReceivedAt   time.Time      `json:"-"`
-	RawTimestamp string         `json:"timestamp"`
+	Service   string         `json:"-"`
+	Level     LogLevel       `json:"level"`
+	Message   string         `json:"message"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+	Timestamp string         `json:"timestamp"`
 }
 
 func (r LogRequest) Validate() error {
@@ -59,26 +57,25 @@ func (l LogLevel) Valid() bool {
 func (r LogRequest) ToRecord(now time.Time) (LogRecord, error) {
 	now = now.UTC()
 	
-	var parsed time.Time
-	if r.Timestamp != "" {
-		var err error
-		parsed, err = parseTimestamp(r.Timestamp)
-		if err != nil {
-			log.Printf("Failed to parse timestamp '%s': %v, using received_at", r.Timestamp, err)
-			parsed = now
-		}
-	} else {
-		parsed = now
+	if r.Timestamp == "" {
+		return LogRecord{}, errors.New("timestamp is required")
+	}
+	
+	parsed, err := parseTimestamp(r.Timestamp)
+	if err != nil {
+		return LogRecord{}, fmt.Errorf("invalid timestamp '%s': %w", r.Timestamp, err)
+	}
+	
+	if parsed.Year() < 2020 || parsed.Year() > 2100 {
+		return LogRecord{}, fmt.Errorf("timestamp out of valid range: %s", parsed.Format(time.RFC3339))
 	}
 	
 	record := LogRecord{
-		Service:      r.Service,
-		Level:        r.Level,
-		Message:      r.Message,
-		Metadata:     r.Metadata,
-		ReceivedAt:   now,
-		Timestamp:    parsed,
-		RawTimestamp: r.Timestamp,
+		Service:   r.Service,
+		Level:     r.Level,
+		Message:   r.Message,
+		Metadata:  r.Metadata,
+		Timestamp: parsed.Format(time.RFC3339Nano),
 	}
 	
 	return record, nil
@@ -95,26 +92,6 @@ func parseTimestamp(raw string) (time.Time, error) {
 		return time.UnixMilli(int64(millis / time.Millisecond)).UTC(), nil
 	}
 	return time.Time{}, errors.New("invalid timestamp")
-}
-
-func (r LogRecord) JSON() ([]byte, error) {
-	return r.StoredJSON()
-}
-
-func (r LogRecord) StoredJSON() ([]byte, error) {
-	payload := map[string]any{
-		"level":   r.Level,
-		"message": r.Message,
-	}
-	if len(r.Metadata) > 0 {
-		payload["metadata"] = r.Metadata
-	}
-	if r.RawTimestamp != "" {
-		payload["timestamp"] = r.RawTimestamp
-	} else {
-		payload["timestamp"] = r.Timestamp.UTC().Format(time.RFC3339Nano)
-	}
-	return json.Marshal(payload)
 }
 
 type LogQuery struct {

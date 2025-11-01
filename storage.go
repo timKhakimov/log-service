@@ -91,6 +91,10 @@ func (s *LogStorage) initDB() error {
 		{
 			Keys: bson.D{{Key: "metadata.accountId", Value: 1}},
 		},
+		{
+			Keys: bson.D{{Key: "_id", Value: 1}},
+			Options: options.Index().SetExpireAfterSeconds(604800),
+		},
 	}
 	
 	_, err = s.collection.Indexes().CreateMany(ctx, indexModels)
@@ -175,7 +179,6 @@ func (s *LogStorage) flushBuffer() {
 	s.bufMu.Unlock()
 
 	if err := s.insertBatch(batch); err != nil {
-		log.Printf("insert batch failed: %v", err)
 		message := FormatAlert("Log Service: Batch Insert Failed", []AlertField{
 			{Label: "Count", Value: fmt.Sprintf("%d", len(batch))},
 			{Label: "Error", Value: err.Error()},
@@ -191,13 +194,14 @@ func (s *LogStorage) insertBatch(records []LogRecord) error {
 
 	docs := make([]interface{}, len(records))
 	for i, record := range records {
+		timestamp, _ := time.Parse(time.RFC3339Nano, record.Timestamp)
+		
 		docs[i] = bson.M{
-			"service":     record.Service,
-			"level":       string(record.Level),
-			"message":     record.Message,
-			"metadata":    record.Metadata,
-			"timestamp":   record.Timestamp,
-			"received_at": record.ReceivedAt,
+			"service":   record.Service,
+			"level":     string(record.Level),
+			"message":   record.Message,
+			"metadata":  record.Metadata,
+			"timestamp": timestamp,
 		}
 	}
 
@@ -230,8 +234,6 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	for key, value := range metadataFilter {
 		filter["metadata."+key] = value
 	}
-	
-	log.Printf("[ReadLogs] service=%s, filter=%v, limit=%d, offset=%d", query.Service, filter, query.Limit, query.Offset)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -240,8 +242,6 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("count documents: %w", err)
 	}
-	
-	log.Printf("[ReadLogs] total documents found: %d", total)
 
 	findOptions := options.Find().
 		SetSort(bson.D{{Key: "timestamp", Value: -1}}).
@@ -258,7 +258,6 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if err := cursor.Decode(&doc); err != nil {
-			log.Printf("decode document failed: %v", err)
 			continue
 		}
 
@@ -276,17 +275,9 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		}
 
 		if timestamp, ok := doc["timestamp"].(time.Time); ok {
-			record.Timestamp = timestamp
-			record.RawTimestamp = timestamp.Format(time.RFC3339Nano)
+			record.Timestamp = timestamp.Format(time.RFC3339Nano)
 		} else {
-			record.Timestamp = time.Now()
-			record.RawTimestamp = time.Now().Format(time.RFC3339Nano)
-		}
-
-		if receivedAt, ok := doc["received_at"].(time.Time); ok {
-			record.ReceivedAt = receivedAt
-		} else {
-			record.ReceivedAt = time.Now()
+			record.Timestamp = time.Now().Format(time.RFC3339Nano)
 		}
 
 		records = append(records, record)
@@ -329,7 +320,7 @@ func (s *LogStorage) Shutdown(ctx context.Context) {
 	case <-done:
 		s.flushBuffer()
 	case <-ctx.Done():
-		log.Printf("shutdown timeout, forcing close")
+		log.Printf("⚠️  Shutdown timeout")
 	}
 	if s.client != nil {
 		s.client.Disconnect(context.Background())
