@@ -195,14 +195,12 @@ func (s *LogStorage) insertBatch(records []LogRecord) error {
 	now := time.Now()
 	
 	for i, record := range records {
-		timestamp, _ := time.Parse(time.RFC3339Nano, record.Timestamp)
-		
 		docs[i] = bson.M{
 			"service":    record.Service,
 			"level":      string(record.Level),
 			"message":    record.Message,
 			"metadata":   record.Metadata,
-			"timestamp":  timestamp,
+			"timestamp":  record.Timestamp,
 			"created_at": now,
 		}
 	}
@@ -276,10 +274,8 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 			}
 		}
 
-		if timestamp, ok := doc["timestamp"].(time.Time); ok {
-			record.Timestamp = timestamp.Format(time.RFC3339Nano)
-		} else if ts, ok := doc["timestamp"].(primitive.DateTime); ok {
-			record.Timestamp = ts.Time().Format(time.RFC3339Nano)
+		if timestamp, ok := doc["timestamp"].(string); ok {
+			record.Timestamp = timestamp
 		} else {
 			record.Timestamp = ""
 			message := FormatAlert("🚨 Log Service: Missing Timestamp", []AlertField{
