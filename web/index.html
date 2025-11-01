@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Log Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: ui-monospace, monospace; }
+        .level-info { background: #1e3a8a; color: #93c5fd; }
+        .level-warn { background: #78350f; color: #fcd34d; }
+        .level-error { background: #7f1d1d; color: #fca5a5; }
+        .log-row { cursor: pointer; transition: background 0.2s; }
+        .log-row:hover { background: #374151 !important; }
+        
+        .timestamp-col { width: 18%; }
+        .level-col { width: 12%; }
+        .message-col { width: 70%; }
+        
+        .modal { display: none; position: fixed; z-index: 50; left: 0; top: 0; width: 100%; height: 100%; 
+                 background-color: rgba(0,0,0,0.85); }
+        .modal.show { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: #1f2937; border-radius: 0.75rem; max-width: 900px; 
+                        width: calc(100% - 2rem); max-height: 90vh; overflow: hidden; 
+                        border: 1px solid #374151; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8); }
+        
+        #metadataFilter { font-family: ui-monospace, monospace; }
+        #metadataFilter.error { border-color: #dc2626; background: #450a0a; color: #fca5a5; }
+        #metadataFilter.valid { border-color: #16a34a; background: #14532d; color: #86efac; }
+
+        @media (max-width: 768px) {
+            body { font-size: 13px; }
+            .container { padding: 0.5rem !important; }
+            
+            .filters-grid { display: flex; flex-direction: column; gap: 0.75rem; }
+            .filters-grid > div { width: 100%; }
+            
+            table { font-size: 0.7rem; }
+            th, td { padding: 0.5rem 0.25rem !important; font-size: 0.65rem; }
+            th { font-size: 0.6rem !important; padding: 0.4rem 0.2rem !important; }
+            
+            .timestamp-col { width: 25%; font-size: 0.6rem; }
+            .level-col { width: 15%; }
+            .message-col { width: 60%; font-size: 0.7rem; }
+            
+            .level-info, .level-warn, .level-error { 
+                padding: 0.25rem 0.5rem; 
+                font-size: 0.6rem; 
+            }
+            
+            .modal { padding: 0; align-items: flex-start; }
+            .modal-content { 
+                width: 100%; 
+                height: 100vh; 
+                max-width: 100%; 
+                max-height: 100vh; 
+                border-radius: 0; 
+                border: none; 
+            }
+            .modal-close-btn { padding: 1rem; font-size: 2rem; }
+            .modal-json { font-size: 0.75rem; padding: 1rem !important; }
+        }
+
+        @media (max-width: 480px) {
+            body { font-size: 12px; }
+            .container { padding: 0.4rem !important; }
+            
+            table { font-size: 0.65rem; }
+            th, td { padding: 0.4rem 0.2rem !important; font-size: 0.6rem; }
+            th { font-size: 0.55rem !important; padding: 0.35rem 0.15rem !important; }
+            
+            .timestamp-col { width: 28%; font-size: 0.55rem; }
+            .level-col { width: 16%; }
+            .message-col { width: 56%; font-size: 0.65rem; }
+            
+            .level-info, .level-warn, .level-error { 
+                padding: 0.2rem 0.4rem; 
+                font-size: 0.55rem; 
+            }
+        }
+
+        @media (max-width: 360px) {
+            body { font-size: 11px; }
+            .container { padding: 0.3rem !important; }
+            
+            table { font-size: 0.6rem; }
+            th, td { padding: 0.3rem 0.15rem !important; font-size: 0.55rem; }
+            th { font-size: 0.5rem !important; padding: 0.3rem 0.1rem !important; }
+            
+            .timestamp-col { display: none; }
+            .level-col { width: 25%; }
+            .message-col { width: 75%; font-size: 0.6rem; }
+            
+            .level-info, .level-warn, .level-error { 
+                padding: 0.2rem 0.3rem; 
+                font-size: 0.5rem; 
+            }
+            
+            .modal-json { font-size: 0.65rem; padding: 0.75rem !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div class="container mx-auto p-3 max-w-full">
+        <div class="bg-gray-800 rounded-lg shadow-lg p-3 mb-3 border border-gray-700">
+            <div class="filters-grid grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-300 mb-1">Service</label>
+                    <select id="serviceFilter" class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1.5 text-sm">
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-300 mb-1">Level</label>
+                    <select id="levelFilter" class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1.5 text-sm">
+                        <option value="">All</option>
+                        <option value="info">Info</option>
+                        <option value="warn">Warn</option>
+                        <option value="error">Error</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-300 mb-1">
+                        Filter
+                        <span class="text-xs text-gray-500">(JSON)</span>
+                    </label>
+                    <input id="metadataFilter" type="text" placeholder='{"key": "value"}' 
+                           class="w-full bg-gray-700 border border-gray-600 text-gray-100 rounded px-2 py-1.5 text-sm placeholder-gray-500">
+                    <div id="metadataError" class="text-xs text-red-400 mt-1 hidden"></div>
+                    <div class="text-xs text-gray-500 mt-1">
+                        <button id="accountIdBtn" class="text-blue-400 hover:text-blue-300">accountId</button>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-3 flex justify-end">
+                <button id="refreshBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors">
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-lg shadow-lg overflow-x-auto border border-gray-700">
+            <table class="w-full text-sm table-fixed min-w-full">
+                <thead class="bg-gray-950 border-b-2 border-gray-600">
+                    <tr>
+                        <th class="px-2 py-3 text-left text-xs font-bold text-gray-200 timestamp-col uppercase tracking-wide">Time (UTC)</th>
+                        <th class="px-2 py-3 text-left text-xs font-bold text-gray-200 level-col uppercase tracking-wide">Level</th>
+                        <th class="px-2 py-3 text-left text-xs font-bold text-gray-200 message-col uppercase tracking-wide">Message</th>
+                    </tr>
+                </thead>
+                <tbody id="logsTable">
+                    <tr>
+                        <td colspan="3" class="px-4 py-8 text-center text-gray-500">
+                            Loading logs...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="logModal" class="modal">
+        <div class="modal-content">
+            <div class="flex justify-end modal-close-btn" style="padding: 1.5rem 1.5rem 0 1.5rem;">
+                <button id="closeModal" class="text-gray-400 hover:text-white text-3xl leading-none transition-colors">&times;</button>
+            </div>
+            <div id="modalContent" class="px-6 pb-6 pt-2 overflow-auto modal-json" style="max-height: calc(90vh - 80px);"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        const LIMIT = 50;
+        let currentOffset = 0;
+        let currentService = '';
+        let allLogs = [];
+        let isLoading = false;
+        let hasMore = true;
+        let currentFilters = {
+            level: '',
+            metadata: ''
+        };
+
+        async function loadServices() {
+            try {
+                const response = await fetch(`${API_BASE}/services`);
+                const data = await response.json();
+                const select = document.getElementById('serviceFilter');
+                select.innerHTML = '';
+                data.services.forEach(service => {
+                    const option = document.createElement('option');
+                    option.value = service;
+                    option.textContent = service;
+                    select.appendChild(option);
+                });
+                if (data.services.length > 0) {
+                    select.value = data.services[0];
+                    currentService = data.services[0];
+                    resetAndLoadLogs();
+                }
+            } catch (error) {
+                console.error('Failed to load services:', error);
+            }
+        }
+
+        function resetAndLoadLogs() {
+            allLogs = [];
+            currentOffset = 0;
+            hasMore = true;
+            document.getElementById('logsTable').innerHTML = '';
+            loadLogs();
+        }
+
+        async function loadLogs(append = false) {
+            if (!currentService || isLoading || !hasMore) return;
+
+            isLoading = true;
+            if (!append) renderLogs(false);
+
+            const metadataFilter = currentFilters.metadata;
+            let url = `${API_BASE}/logs?service=${currentService}&limit=${LIMIT}&offset=${currentOffset}`;
+            
+            if (metadataFilter) {
+                url += `&metadata=${encodeURIComponent(metadataFilter)}`;
+            }
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                let logs = data.logs || [];
+
+                if (currentFilters.level) {
+                    logs = logs.filter(log => log.level === currentFilters.level);
+                }
+
+                if (logs.length === 0) {
+                    hasMore = false;
+                }
+
+                if (append) {
+                    allLogs = [...allLogs, ...logs];
+                } else {
+                    allLogs = logs;
+                }
+                
+                currentOffset += LIMIT;
+            } catch (error) {
+                console.error('Failed to load logs:', error);
+                if (!append) {
+                    isLoading = false;
+                    document.getElementById('logsTable').innerHTML = `
+                        <tr><td colspan="3" class="px-4 py-8 text-center text-red-500">
+                            Error loading logs: ${error.message}
+                        </td></tr>
+                    `;
+                    return;
+                }
+            } finally {
+                isLoading = false;
+                renderLogs(append);
+            }
+        }
+
+        function renderLogs(append = false) {
+            const tbody = document.getElementById('logsTable');
+            
+            if (isLoading && allLogs.length === 0) {
+                tbody.innerHTML = `
+                    <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">
+                        <div class="flex items-center justify-center gap-2">
+                            <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Loading logs...
+                        </div>
+                    </td></tr>
+                `;
+                return;
+            }
+            
+            if (!isLoading && allLogs.length === 0) {
+                tbody.innerHTML = `
+                    <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">
+                        No logs found
+                    </td></tr>
+                `;
+                return;
+            }
+
+            allLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            const html = allLogs.map((log, idx) => {
+                const levelClass = `level-${log.level}`;
+                const date = new Date(log.timestamp);
+                
+                const hours = String(date.getUTCHours()).padStart(2, '0');
+                const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+                const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+                const day = String(date.getUTCDate()).padStart(2, '0');
+                const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+                
+                const timeStr = `${hours}:${minutes}:${seconds} ${day}/${month}`;
+                
+                return `
+                    <tr class="log-row border-b border-gray-700 bg-gray-800" data-index="${idx}">
+                        <td class="px-2 py-2 text-xs text-gray-400 timestamp-col">${timeStr}</td>
+                        <td class="px-2 py-2 level-col">
+                            <span class="px-2 py-1 rounded text-xs font-semibold ${levelClass} whitespace-nowrap">
+                                ${log.level}
+                            </span>
+                        </td>
+                        <td class="px-2 py-2 text-gray-300 message-col break-words">${log.message}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            if (append) {
+                tbody.insertAdjacentHTML('beforeend', html);
+            } else {
+                tbody.innerHTML = html;
+            }
+
+            document.querySelectorAll('.log-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    const index = parseInt(row.dataset.index);
+                    showLogDetails(allLogs[index]);
+                });
+            });
+        }
+
+        function showLogDetails(log) {
+            const modal = document.getElementById('logModal');
+            const content = document.getElementById('modalContent');
+            
+            const metadataStr = log.metadata ? JSON.stringify(log.metadata, null, 2) : '{}';
+            
+            content.innerHTML = `
+                <pre class="text-sm text-gray-100 bg-gray-900 p-4 rounded-lg border border-gray-700 overflow-x-auto">${metadataStr}</pre>
+            `;
+            
+            modal.classList.add('show');
+        }
+
+        document.getElementById('closeModal').addEventListener('click', () => {
+            document.getElementById('logModal').classList.remove('show');
+        });
+
+        document.getElementById('logModal').addEventListener('click', (e) => {
+            if (e.target.id === 'logModal') {
+                document.getElementById('logModal').classList.remove('show');
+            }
+        });
+
+        function validateJSON(str) {
+            if (!str.trim()) return { valid: true, data: null };
+            try {
+                const data = JSON.parse(str);
+                return { valid: true, data };
+            } catch (e) {
+                return { valid: false, error: e.message };
+            }
+        }
+
+        document.getElementById('serviceFilter').addEventListener('change', (e) => {
+            currentService = e.target.value;
+            resetAndLoadLogs();
+        });
+
+        document.getElementById('levelFilter').addEventListener('change', (e) => {
+            currentFilters.level = e.target.value;
+            resetAndLoadLogs();
+        });
+
+        let metadataTimeout;
+        document.getElementById('metadataFilter').addEventListener('input', (e) => {
+            const input = e.target;
+            const errorDiv = document.getElementById('metadataError');
+            const value = input.value.trim();
+            
+            if (!value) {
+                input.classList.remove('error', 'valid');
+                errorDiv.classList.add('hidden');
+                currentFilters.metadata = '';
+                clearTimeout(metadataTimeout);
+                metadataTimeout = setTimeout(() => resetAndLoadLogs(), 500);
+                return;
+            }
+
+            const validation = validateJSON(value);
+            
+            if (validation.valid) {
+                input.classList.remove('error');
+                input.classList.add('valid');
+                errorDiv.classList.add('hidden');
+                currentFilters.metadata = value;
+                clearTimeout(metadataTimeout);
+                metadataTimeout = setTimeout(() => resetAndLoadLogs(), 800);
+            } else {
+                input.classList.add('error');
+                input.classList.remove('valid');
+                errorDiv.textContent = `Invalid JSON: ${validation.error}`;
+                errorDiv.classList.remove('hidden');
+            }
+        });
+
+        document.getElementById('accountIdBtn').addEventListener('click', () => {
+            const input = document.getElementById('metadataFilter');
+            input.value = '{"accountId": ""}';
+            input.focus();
+            input.setSelectionRange(15, 15);
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', () => {
+            resetAndLoadLogs();
+        });
+
+        window.addEventListener('scroll', () => {
+            const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
+            
+            if (scrollHeight - scrollTop - clientHeight < 500) {
+                if (!isLoading && hasMore) {
+                    loadLogs(true);
+                }
+            }
+        });
+
+        loadServices();
+    </script>
+</body>
+</html>

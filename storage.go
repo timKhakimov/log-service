@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -401,4 +403,128 @@ func (s *LogStorage) notify(message string) {
 		return
 	}
 	s.notifier.Notify(message)
+}
+
+func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
+	serviceDir := filepath.Join(s.cfg.LogDir, sanitizeService(query.Service))
+	pattern := filepath.Join(serviceDir, "*.ndjson")
+
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(files) == 0 {
+		return []LogRecord{}, 0, nil
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i] > files[j]
+	})
+
+	var metadataFilter map[string]any
+	if query.Metadata != "" {
+		if err := json.Unmarshal([]byte(query.Metadata), &metadataFilter); err != nil {
+			return nil, 0, fmt.Errorf("invalid metadata JSON: %w", err)
+		}
+	}
+
+	var allMatchingLogs []LogRecord
+
+	for _, filePath := range files {
+		file, err := os.Open(filePath)
+		if err != nil {
+			continue
+		}
+
+		var lines [][]byte
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := make([]byte, len(scanner.Bytes()))
+			copy(line, scanner.Bytes())
+			lines = append(lines, line)
+		}
+		file.Close()
+
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := lines[i]
+			if len(line) == 0 {
+				continue
+			}
+
+			var record LogRecord
+			if err := json.Unmarshal(line, &record); err != nil {
+				continue
+			}
+
+			if !matchesMetadata(record.Metadata, metadataFilter) {
+				continue
+			}
+
+			allMatchingLogs = append(allMatchingLogs, record)
+		}
+	}
+
+	total := len(allMatchingLogs)
+
+	start := query.Offset
+	if start >= total {
+		return []LogRecord{}, total, nil
+	}
+
+	end := start + query.Limit
+	if end > total {
+		end = total
+	}
+
+	result := allMatchingLogs[start:end]
+	return result, total, nil
+}
+
+func matchesMetadata(recordMeta, filterMeta map[string]any) bool {
+	if len(filterMeta) == 0 {
+		return true
+	}
+
+	for key, filterValue := range filterMeta {
+		recordValue, exists := recordMeta[key]
+		if !exists {
+			return false
+		}
+
+		if !deepEqual(recordValue, filterValue) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func deepEqual(a, b any) bool {
+	aJSON, err1 := json.Marshal(a)
+	bJSON, err2 := json.Marshal(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return string(aJSON) == string(bJSON)
+}
+
+func (s *LogStorage) GetServices() ([]string, error) {
+	entries, err := os.ReadDir(s.cfg.LogDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	var services []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			services = append(services, entry.Name())
+		}
+	}
+
+	sort.Strings(services)
+	return services, nil
 }

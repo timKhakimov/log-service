@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -19,8 +20,10 @@ type Server struct {
 func NewServer(cfg Config, storage *LogStorage) *Server {
 	srv := &Server{cfg: cfg, storage: storage}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", srv.handleIndex)
 	mux.HandleFunc("/log", srv.handleLog)
-	mux.HandleFunc("/health", srv.handleHealth)
+	mux.HandleFunc("/logs", srv.handleGetLogs)
+	mux.HandleFunc("/services", srv.handleGetServices)
 	srv.http = &http.Server{
 		Addr:              cfg.Addr(),
 		Handler:           mux,
@@ -51,14 +54,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.http.Shutdown(ctx)
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, "web/index.html")
 }
 
 func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +92,77 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	service := r.URL.Query().Get("service")
+	if service == "" {
+		writeError(w, http.StatusBadRequest, "service parameter is required")
+		return
+	}
+
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+			if limit > 10000 {
+				limit = 10000
+			}
+		}
+	}
+
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	metadata := r.URL.Query().Get("metadata")
+
+	query := LogQuery{
+		Service:  service,
+		Limit:    limit,
+		Offset:   offset,
+		Metadata: metadata,
+	}
+
+	logs, total, err := s.storage.ReadLogs(query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := LogsResponse{
+		Logs:   logs,
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleGetServices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	services, err := s.storage.GetServices()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"services": services,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

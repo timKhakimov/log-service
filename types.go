@@ -57,24 +57,26 @@ func (l LogLevel) Valid() bool {
 
 func (r LogRequest) ToRecord(now time.Time) (LogRecord, error) {
 	now = now.UTC()
-	record := LogRecord{
-		Service:    r.Service,
-		Level:      r.Level,
-		Message:    r.Message,
-		Metadata:   r.Metadata,
-		ReceivedAt: now,
-	}
+	
 	if r.Timestamp == "" {
-		record.Timestamp = now
-		record.RawTimestamp = ""
-		return record, nil
+		return LogRecord{}, errors.New("timestamp is required")
 	}
+	
 	parsed, err := parseTimestamp(r.Timestamp)
 	if err != nil {
 		return LogRecord{}, err
 	}
-	record.Timestamp = parsed
-	record.RawTimestamp = r.Timestamp
+	
+	record := LogRecord{
+		Service:      r.Service,
+		Level:        r.Level,
+		Message:      r.Message,
+		Metadata:     r.Metadata,
+		ReceivedAt:   now,
+		Timestamp:    parsed,
+		RawTimestamp: r.Timestamp,
+	}
+	
 	return record, nil
 }
 
@@ -109,4 +111,18 @@ func (r LogRecord) StoredJSON() ([]byte, error) {
 		payload["timestamp"] = r.Timestamp.UTC().Format(time.RFC3339Nano)
 	}
 	return json.Marshal(payload)
+}
+
+type LogQuery struct {
+	Service  string
+	Limit    int
+	Offset   int
+	Metadata string
+}
+
+type LogsResponse struct {
+	Logs   []LogRecord `json:"logs"`
+	Total  int         `json:"total"`
+	Limit  int         `json:"limit"`
+	Offset int         `json:"offset"`
 }
