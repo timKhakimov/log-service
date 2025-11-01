@@ -29,9 +29,9 @@ type LogRecord struct {
 	Level        LogLevel       `json:"level"`
 	Message      string         `json:"message"`
 	Metadata     map[string]any `json:"metadata,omitempty"`
-	Timestamp    time.Time      `json:"timestamp"`
+	Timestamp    time.Time      `json:"-"`
 	ReceivedAt   time.Time      `json:"-"`
-	RawTimestamp string         `json:"-"`
+	RawTimestamp string         `json:"timestamp"`
 }
 
 func (r LogRequest) Validate() error {
