@@ -234,6 +234,8 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		return s.readLogsNoFilter(query)
 	}
 
+	log.Printf("[ReadLogs] Filter mode: service=%s, filter=%v, limit=%d, offset=%d", query.Service, metadataFilter, query.Limit, query.Offset)
+
 	selectQuery := `SELECT service, level, message, metadata, timestamp, received_at FROM logs WHERE service = ? ORDER BY timestamp DESC`
 	rows, err := s.db.Query(selectQuery, query.Service)
 	if err != nil {
@@ -242,8 +244,12 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	defer rows.Close()
 
 	var filteredRecords []LogRecord
+	totalScanned := 0
+	matchedCount := 0
+	unmarshalErrors := 0
 	
 	for rows.Next() {
+		totalScanned++
 		var record LogRecord
 		var metadataJSON []byte
 		var timestampStr, receivedAtStr string
@@ -264,8 +270,11 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		if len(metadataJSON) > 0 {
 			if err := json.Unmarshal(metadataJSON, &record.Metadata); err != nil {
 				log.Printf("unmarshal metadata failed: %v", err)
+				unmarshalErrors++
 				record.Metadata = make(map[string]any)
 			}
+		} else {
+			record.Metadata = make(map[string]any)
 		}
 
 		record.Timestamp, _ = time.Parse(time.RFC3339Nano, timestampStr)
@@ -274,6 +283,7 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 
 		if matchesMetadata(record.Metadata, metadataFilter) {
 			filteredRecords = append(filteredRecords, record)
+			matchedCount++
 		}
 	}
 
@@ -281,11 +291,14 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		return nil, 0, fmt.Errorf("rows error: %w", err)
 	}
 
+	log.Printf("[ReadLogs] Scanned=%d, Matched=%d, UnmarshalErrors=%d", totalScanned, matchedCount, unmarshalErrors)
+
 	total := len(filteredRecords)
 	start := query.Offset
 	end := query.Offset + query.Limit
 
 	if start > total {
+		log.Printf("[ReadLogs] Offset %d > Total %d, returning empty", start, total)
 		return []LogRecord{}, total, nil
 	}
 	if end > total {
@@ -293,6 +306,7 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	}
 
 	result := filteredRecords[start:end]
+	log.Printf("[ReadLogs] Returning %d records (total=%d, start=%d, end=%d)", len(result), total, start, end)
 	return result, total, nil
 }
 
@@ -366,8 +380,19 @@ func matchesMetadata(recordMeta, filterMeta map[string]any) bool {
 			return false
 		}
 
-		if !deepEqual(recordValue, filterValue) {
-			return false
+		switch fv := filterValue.(type) {
+		case map[string]any:
+			rv, ok := recordValue.(map[string]any)
+			if !ok {
+				return false
+			}
+			if !matchesMetadata(rv, fv) {
+				return false
+			}
+		default:
+			if !deepEqual(recordValue, filterValue) {
+				return false
+			}
 		}
 	}
 
