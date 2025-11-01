@@ -109,7 +109,6 @@ func (s *LogStorage) Enqueue(record LogRecord) error {
 	case <-s.ctx.Done():
 		return errors.New("storage stopped")
 	case s.queue <- record:
-		log.Printf("📥 Enqueued log, queue size: %d/%d", len(s.queue), cap(s.queue))
 		return nil
 	default:
 		log.Printf("🚨 Queue full! Size: %d", cap(s.queue))
