@@ -63,7 +63,6 @@ func (s *LogStorage) initDB() error {
 	clientOptions.SetMaxPoolSize(100)
 	clientOptions.SetMinPoolSize(10)
 	clientOptions.SetMaxConnIdleTime(10 * time.Minute)
-	clientOptions.SetMaxConnLifetime(30 * time.Minute)
 	
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
