@@ -288,8 +288,6 @@
                 return;
             }
 
-            allLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
             const html = allLogs.map((log, idx) => {
                 const levelClass = `level-${log.level}`;
                 const date = new Date(log.timestamp);
