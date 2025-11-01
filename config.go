@@ -12,7 +12,7 @@ import (
 type Config struct {
     BindAddr       string
     Port           int
-    DBPath         string
+    MongoURI       string
     FlushLines     int
     FlushInterval  time.Duration
     MaxQueue       int
@@ -32,7 +32,7 @@ type BackoffConfig struct {
 func LoadConfig() (Config, error) {
 	cfg := Config{
 		BindAddr:      getEnvString("BIND_ADDR", "0.0.0.0"),
-		DBPath:        getEnvString("DB_PATH", "./logs.db"),
+		MongoURI:      getEnvString("MONGO_URI", "mongodb://localhost:27017"),
 		FlushLines:    getEnvInt("FLUSH_LINES", 500),
 		FlushInterval: getEnvDuration("FLUSH_MS", 2000*time.Millisecond),
 		MaxQueue:      getEnvInt("MAX_QUEUE", 100000),

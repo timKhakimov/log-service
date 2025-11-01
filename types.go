@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"time"
 )
 
@@ -58,13 +59,16 @@ func (l LogLevel) Valid() bool {
 func (r LogRequest) ToRecord(now time.Time) (LogRecord, error) {
 	now = now.UTC()
 	
-	if r.Timestamp == "" {
-		return LogRecord{}, errors.New("timestamp is required")
-	}
-	
-	parsed, err := parseTimestamp(r.Timestamp)
-	if err != nil {
-		return LogRecord{}, err
+	var parsed time.Time
+	if r.Timestamp != "" {
+		var err error
+		parsed, err = parseTimestamp(r.Timestamp)
+		if err != nil {
+			log.Printf("Failed to parse timestamp '%s': %v, using received_at", r.Timestamp, err)
+			parsed = now
+		}
+	} else {
+		parsed = now
 	}
 	
 	record := LogRecord{
