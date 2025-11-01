@@ -86,9 +86,6 @@ func (s *LogStorage) initDB() error {
 			},
 		},
 		{
-			Keys: bson.D{{Key: "timestamp", Value: -1}},
-		},
-		{
 			Keys: bson.D{{Key: "metadata.accountId", Value: 1}},
 		},
 		{
