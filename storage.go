@@ -222,12 +222,81 @@ func (s *LogStorage) insertBatch(records []LogRecord) error {
 
 func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	var metadataFilter map[string]any
+	hasFilter := false
 	if query.Metadata != "" {
 		if err := json.Unmarshal([]byte(query.Metadata), &metadataFilter); err != nil {
 			return nil, 0, fmt.Errorf("invalid metadata JSON: %w", err)
 		}
+		hasFilter = len(metadataFilter) > 0
 	}
 
+	if !hasFilter {
+		return s.readLogsNoFilter(query)
+	}
+
+	selectQuery := `SELECT service, level, message, metadata, timestamp, received_at FROM logs WHERE service = ? ORDER BY timestamp DESC`
+	rows, err := s.db.Query(selectQuery, query.Service)
+	if err != nil {
+		return nil, 0, fmt.Errorf("select query: %w", err)
+	}
+	defer rows.Close()
+
+	var filteredRecords []LogRecord
+	
+	for rows.Next() {
+		var record LogRecord
+		var metadataJSON []byte
+		var timestampStr, receivedAtStr string
+
+		err := rows.Scan(
+			&record.Service,
+			&record.Level,
+			&record.Message,
+			&metadataJSON,
+			&timestampStr,
+			&receivedAtStr,
+		)
+		if err != nil {
+			log.Printf("scan row failed: %v", err)
+			continue
+		}
+
+		if len(metadataJSON) > 0 {
+			if err := json.Unmarshal(metadataJSON, &record.Metadata); err != nil {
+				log.Printf("unmarshal metadata failed: %v", err)
+				record.Metadata = make(map[string]any)
+			}
+		}
+
+		record.Timestamp, _ = time.Parse(time.RFC3339Nano, timestampStr)
+		record.ReceivedAt, _ = time.Parse(time.RFC3339Nano, receivedAtStr)
+		record.RawTimestamp = timestampStr
+
+		if matchesMetadata(record.Metadata, metadataFilter) {
+			filteredRecords = append(filteredRecords, record)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("rows error: %w", err)
+	}
+
+	total := len(filteredRecords)
+	start := query.Offset
+	end := query.Offset + query.Limit
+
+	if start > total {
+		return []LogRecord{}, total, nil
+	}
+	if end > total {
+		end = total
+	}
+
+	result := filteredRecords[start:end]
+	return result, total, nil
+}
+
+func (s *LogStorage) readLogsNoFilter(query LogQuery) ([]LogRecord, int, error) {
 	countQuery := `SELECT COUNT(*) FROM logs WHERE service = ?`
 	var total int
 	err := s.db.QueryRow(countQuery, query.Service).Scan(&total)
@@ -240,8 +309,7 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	}
 
 	selectQuery := `SELECT service, level, message, metadata, timestamp, received_at FROM logs WHERE service = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?`
-
-	rows, err := s.db.Query(selectQuery, query.Service, query.Limit*10, query.Offset)
+	rows, err := s.db.Query(selectQuery, query.Service, query.Limit, query.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("select query: %w", err)
 	}
@@ -269,6 +337,7 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		if len(metadataJSON) > 0 {
 			if err := json.Unmarshal(metadataJSON, &record.Metadata); err != nil {
 				log.Printf("unmarshal metadata failed: %v", err)
+				record.Metadata = make(map[string]any)
 			}
 		}
 
@@ -276,12 +345,7 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		record.ReceivedAt, _ = time.Parse(time.RFC3339Nano, receivedAtStr)
 		record.RawTimestamp = timestampStr
 
-		if len(metadataFilter) == 0 || matchesMetadata(record.Metadata, metadataFilter) {
-			allRecords = append(allRecords, record)
-			if len(allRecords) >= query.Limit {
-				break
-			}
-		}
+		allRecords = append(allRecords, record)
 	}
 
 	if err := rows.Err(); err != nil {
