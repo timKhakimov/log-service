@@ -83,16 +83,21 @@ func (s *LogStorage) Insert(record LogRecord) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	timestamp, err := time.Parse(time.RFC3339Nano, record.Timestamp)
+	if err != nil {
+		return fmt.Errorf("parse timestamp: %w", err)
+	}
+
 	doc := bson.M{
 		"service":    record.Service,
 		"level":      string(record.Level),
 		"message":    record.Message,
 		"metadata":   record.Metadata,
-		"timestamp":  record.Timestamp,
+		"timestamp":  timestamp,
 		"created_at": time.Now(),
 	}
 
-	_, err := s.collection.InsertOne(ctx, doc)
+	_, err = s.collection.InsertOne(ctx, doc)
 	if err != nil {
 		return fmt.Errorf("insert: %w", err)
 	}
