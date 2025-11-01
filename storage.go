@@ -109,8 +109,10 @@ func (s *LogStorage) Enqueue(record LogRecord) error {
 	case <-s.ctx.Done():
 		return errors.New("storage stopped")
 	case s.queue <- record:
+		log.Printf("📥 Enqueued log, queue size: %d/%d", len(s.queue), cap(s.queue))
 		return nil
 	default:
+		log.Printf("🚨 Queue full! Size: %d", cap(s.queue))
 		return errors.New("queue full")
 	}
 }
@@ -177,12 +179,17 @@ func (s *LogStorage) flushBuffer() {
 	s.buffer = s.buffer[:0]
 	s.bufMu.Unlock()
 
+	log.Printf("📦 Flushing batch: %d records", len(batch))
+
 	if err := s.insertBatch(batch); err != nil {
+		log.Printf("❌ Batch insert failed: %v", err)
 		message := FormatAlert("Log Service: Batch Insert Failed", []AlertField{
 			{Label: "Count", Value: fmt.Sprintf("%d", len(batch))},
 			{Label: "Error", Value: err.Error()},
 		})
 		s.notify(message)
+	} else {
+		log.Printf("✅ Batch inserted successfully: %d records", len(batch))
 	}
 }
 
@@ -274,7 +281,9 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 			}
 		}
 
-		if ts, ok := doc["timestamp"].(primitive.DateTime); ok {
+		if timestamp, ok := doc["timestamp"].(string); ok {
+			record.Timestamp = timestamp
+		} else if ts, ok := doc["timestamp"].(primitive.DateTime); ok {
 			record.Timestamp = ts.Time().Format(time.RFC3339Nano)
 		} else {
 			record.Timestamp = ""
