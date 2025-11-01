@@ -230,6 +230,8 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	for key, value := range metadataFilter {
 		filter["metadata."+key] = value
 	}
+	
+	log.Printf("[ReadLogs] service=%s, filter=%v, limit=%d, offset=%d", query.Service, filter, query.Limit, query.Offset)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -238,6 +240,8 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("count documents: %w", err)
 	}
+	
+	log.Printf("[ReadLogs] total documents found: %d", total)
 
 	findOptions := options.Find().
 		SetSort(bson.D{{Key: "timestamp", Value: -1}}).
@@ -274,10 +278,15 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		if timestamp, ok := doc["timestamp"].(time.Time); ok {
 			record.Timestamp = timestamp
 			record.RawTimestamp = timestamp.Format(time.RFC3339Nano)
+		} else {
+			record.Timestamp = time.Now()
+			record.RawTimestamp = time.Now().Format(time.RFC3339Nano)
 		}
 
 		if receivedAt, ok := doc["received_at"].(time.Time); ok {
 			record.ReceivedAt = receivedAt
+		} else {
+			record.ReceivedAt = time.Now()
 		}
 
 		records = append(records, record)
