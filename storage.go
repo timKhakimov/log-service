@@ -421,8 +421,6 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	sort.Slice(files, func(i, j int) bool {
 		return files[i] > files[j]
 	})
-	
-	log.Printf("ReadLogs: found %d files, reading from newest first: %v", len(files), files)
 
 	var metadataFilter map[string]any
 	if query.Metadata != "" {
@@ -441,14 +439,28 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 
 		var lines [][]byte
 		scanner := bufio.NewScanner(file)
+		
+		buf := make([]byte, 0, 64*1024)
+		scanner.Buffer(buf, 100*1024*1024)
+		
 		for scanner.Scan() {
 			line := make([]byte, len(scanner.Bytes()))
 			copy(line, scanner.Bytes())
 			lines = append(lines, line)
 		}
-		file.Close()
 		
-		log.Printf("ReadLogs: file %s has %d lines, reading from bottom", filePath, len(lines))
+		if err := scanner.Err(); err != nil {
+			file.Close()
+			message := FormatAlert("Log Service: Scanner Error", []AlertField{
+				{Label: "File", Value: filePath},
+				{Label: "Service", Value: query.Service},
+				{Label: "Error", Value: err.Error()},
+			})
+			s.notify(message)
+			continue
+		}
+		
+		file.Close()
 
 		for i := len(lines) - 1; i >= 0; i-- {
 			line := lines[i]
@@ -470,8 +482,6 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	}
 
 	total := len(allMatchingLogs)
-	
-	log.Printf("ReadLogs: collected %d matching logs total", total)
 
 	start := query.Offset
 	if start >= total {
