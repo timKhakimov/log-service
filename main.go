@@ -42,7 +42,7 @@ func main() {
 		message := FormatAlert("⚠️  Log Service: Shutdown Error", []AlertField{{Label: "Error", Value: err.Error()}})
 		notifyWithNotifier(notifier, message)
 	}
-	storage.Shutdown(shutdownCtx)
+	storage.Close()
 }
 
 func notifyWithNotifier(notifier *BotNotifier, message string) {
