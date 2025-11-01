@@ -405,7 +405,7 @@ func (s *LogStorage) notify(message string) {
 	s.notifier.Notify(message)
 }
 
-func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
+func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {	
 	serviceDir := filepath.Join(s.cfg.LogDir, sanitizeService(query.Service))
 	pattern := filepath.Join(serviceDir, "*.ndjson")
 
@@ -421,6 +421,8 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	sort.Slice(files, func(i, j int) bool {
 		return files[i] > files[j]
 	})
+	
+	log.Printf("ReadLogs: found %d files, reading from newest first: %v", len(files), files)
 
 	var metadataFilter map[string]any
 	if query.Metadata != "" {
@@ -445,6 +447,8 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 			lines = append(lines, line)
 		}
 		file.Close()
+		
+		log.Printf("ReadLogs: file %s has %d lines, reading from bottom", filePath, len(lines))
 
 		for i := len(lines) - 1; i >= 0; i-- {
 			line := lines[i]
@@ -466,6 +470,8 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	}
 
 	total := len(allMatchingLogs)
+	
+	log.Printf("ReadLogs: collected %d matching logs total", total)
 
 	start := query.Offset
 	if start >= total {
