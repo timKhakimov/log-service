@@ -441,7 +441,7 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 		scanner := bufio.NewScanner(file)
 		
 		buf := make([]byte, 0, 64*1024)
-		scanner.Buffer(buf, 100*1024*1024)
+		scanner.Buffer(buf, 1024*1024*1024)
 		
 		for scanner.Scan() {
 			line := make([]byte, len(scanner.Bytes()))
