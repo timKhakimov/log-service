@@ -277,7 +277,10 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 
 		if timestamp, ok := doc["timestamp"].(time.Time); ok {
 			record.Timestamp = timestamp.Format(time.RFC3339Nano)
+		} else if ts, ok := doc["timestamp"].(primitive.DateTime); ok {
+			record.Timestamp = ts.Time().Format(time.RFC3339Nano)
 		} else {
+			log.Printf("WARNING: Unknown timestamp type: %T, value: %v", doc["timestamp"], doc["timestamp"])
 			record.Timestamp = time.Now().Format(time.RFC3339Nano)
 		}
 
