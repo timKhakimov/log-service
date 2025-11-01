@@ -301,6 +301,11 @@
                 const month = String(date.getUTCMonth() + 1).padStart(2, '0');
                 
                 const timeStr = `${hours}:${minutes}:${seconds} ${day}/${month}`;
+                const escapeHtml = (text) => {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
+                };
                 
                 return `
                     <tr class="log-row border-b border-gray-700 bg-gray-800" data-index="${idx}">
@@ -310,7 +315,7 @@
                                 ${log.level}
                             </span>
                         </td>
-                        <td class="px-2 py-2 text-gray-300 message-col break-words">${log.message}</td>
+                        <td class="px-2 py-2 text-gray-300 message-col break-words">${escapeHtml(log.message)}</td>
                     </tr>
                 `;
             }).join('');
