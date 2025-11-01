@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -27,11 +28,11 @@ func NewServer(cfg Config, storage *LogStorage) *Server {
 	srv.http = &http.Server{
 		Addr:              cfg.Addr(),
 		Handler:           mux,
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      5 * time.Minute,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 16,
-		ReadHeaderTimeout: 2 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			if state == http.StateNew {
 				if tcpConn, ok := conn.(*net.TCPConn); ok {
@@ -72,6 +73,9 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
+	
+	start := time.Now()
+	
 	var req LogRequest
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	if err := decoder.Decode(&req); err != nil {
@@ -91,6 +95,17 @@ func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	
+	duration := time.Since(start)
+	if duration > 3*time.Second {
+		message := FormatAlert("Log Service: Slow Write", []AlertField{
+			{Label: "Duration", Value: duration.String()},
+			{Label: "Service", Value: req.Service},
+			{Label: "Queue Size", Value: fmt.Sprintf("%d", len(s.storage.queue))},
+		})
+		s.storage.notify(message)
+	}
+	
 	w.WriteHeader(http.StatusOK)
 }
 
