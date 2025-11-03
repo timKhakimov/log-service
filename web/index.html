@@ -194,8 +194,9 @@
                     select.appendChild(option);
                 });
                 if (data.services.length > 0) {
-                    select.value = data.services[0];
-                    currentService = data.services[0];
+                    const defaultService = data.services.includes('sender') ? 'sender' : data.services[0];
+                    select.value = defaultService;
+                    currentService = defaultService;
                     resetAndLoadLogs();
                 }
             } catch (error) {
