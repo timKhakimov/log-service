@@ -6,7 +6,7 @@ docker rm -f log-service-mongodb 2>/dev/null || true
 docker run -d \
   --name log-service-mongodb \
   --restart always \
-  -p 27017:27017 \
+  -p 127.0.0.1:27017:27017 \
   -v $(pwd)/data/mongodb:/data/db \
   mongo:7.0 \
   mongod --quiet --logpath /dev/null
