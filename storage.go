@@ -39,43 +39,43 @@ func (s *LogStorage) initDB() error {
 	clientOptions.SetMaxPoolSize(100)
 	clientOptions.SetMinPoolSize(10)
 	clientOptions.SetMaxConnIdleTime(10 * time.Minute)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return fmt.Errorf("connect to mongodb: %w", err)
 	}
-	
+
 	if err := client.Ping(ctx, nil); err != nil {
 		return fmt.Errorf("ping mongodb: %w", err)
 	}
-	
+
 	s.client = client
 	s.collection = client.Database("logs").Collection("entries")
-	
+
 	indexModels := []mongo.IndexModel{
 		{
 			Keys: bson.D{
-				{Key: "service", Value: 1},
-				{Key: "timestamp", Value: -1},
+				bson.E{Key: "service", Value: 1},
+				bson.E{Key: "timestamp", Value: -1},
 			},
 		},
 		{
-			Keys: bson.D{{Key: "metadata.accountId", Value: 1}},
+			Keys: bson.D{bson.E{Key: "metadata.accountId", Value: 1}},
 		},
 		{
-			Keys: bson.D{{Key: "created_at", Value: 1}},
+			Keys:    bson.D{bson.E{Key: "created_at", Value: 1}},
 			Options: options.Index().SetExpireAfterSeconds(604800),
 		},
 	}
-	
+
 	_, err = s.collection.Indexes().CreateMany(ctx, indexModels)
 	if err != nil {
 		return fmt.Errorf("create indexes: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -142,7 +142,7 @@ func (s *LogStorage) ReadLogs(query LogQuery) ([]LogRecord, int, error) {
 	}
 
 	findOptions := options.Find().
-		SetSort(bson.D{{Key: "timestamp", Value: -1}}).
+		SetSort(bson.D{bson.E{Key: "timestamp", Value: -1}}).
 		SetLimit(int64(query.Limit)).
 		SetSkip(int64(query.Offset))
 
