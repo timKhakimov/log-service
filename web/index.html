@@ -170,7 +170,7 @@
 
     <script>
         const API_BASE = '';
-        const LIMIT = 50;
+        const LIMIT = 1000;
         let currentOffset = 0;
         let currentService = '';
         let allLogs = [];
@@ -208,7 +208,17 @@
             allLogs = [];
             currentOffset = 0;
             hasMore = true;
-            document.getElementById('logsTable').innerHTML = '';
+            document.getElementById('logsTable').innerHTML = `
+                <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">
+                    <div class="flex items-center justify-center gap-2">
+                        <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Loading logs...
+                    </div>
+                </td></tr>
+            `;
             loadLogs();
         }
 
@@ -216,7 +226,6 @@
             if (!currentService || isLoading || !hasMore) return;
 
             isLoading = true;
-            if (!append) renderLogs(false);
 
             const metadataFilter = currentFilters.metadata;
             let url = `${API_BASE}/logs?service=${currentService}&limit=${LIMIT}&offset=${currentOffset}`;
@@ -235,53 +244,76 @@
                     logs = logs.filter(log => log.level === currentFilters.level);
                 }
 
-                if (logs.length === 0) {
+                if (logs.length < LIMIT) {
                     hasMore = false;
                 }
 
-                if (append) {
-                    allLogs = [...allLogs, ...logs];
-                } else {
-                    allLogs = logs;
-                }
-                
+                const startIndex = allLogs.length;
+                allLogs = allLogs.concat(logs);
                 currentOffset += LIMIT;
+
+                if (append) {
+                    appendLogsToTable(logs, startIndex);
+                } else {
+                    renderAllLogs();
+                }
             } catch (error) {
                 console.error('Failed to load logs:', error);
                 if (!append) {
-                    isLoading = false;
                     document.getElementById('logsTable').innerHTML = `
                         <tr><td colspan="3" class="px-4 py-8 text-center text-red-500">
                             Error loading logs: ${error.message}
                         </td></tr>
                     `;
-                    return;
                 }
             } finally {
                 isLoading = false;
-                renderLogs(append);
             }
         }
 
-        function renderLogs(append = false) {
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatTimestamp(timestamp) {
+            const cleaned = timestamp.replace(/(\.\d{3})\d+([\+\-])/, '$1$2');
+            const date = new Date(cleaned);
+            
+            const hours = String(date.getUTCHours()).padStart(2, '0');
+            const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+            const day = String(date.getUTCDate()).padStart(2, '0');
+            const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+            
+            return `${hours}:${minutes}:${seconds} ${day}/${month}`;
+        }
+
+        function createLogRow(log, index) {
+            const tr = document.createElement('tr');
+            tr.className = 'log-row border-b border-gray-700 bg-gray-800';
+            tr.dataset.index = index;
+            
+            tr.innerHTML = `
+                <td class="px-2 py-2 text-xs text-gray-400 timestamp-col">${formatTimestamp(log.timestamp)}</td>
+                <td class="px-2 py-2 level-col">
+                    <span class="px-2 py-1 rounded text-xs font-semibold level-${log.level} whitespace-nowrap">
+                        ${log.level}
+                    </span>
+                </td>
+                <td class="px-2 py-2 text-gray-300 message-col break-words">${escapeHtml(log.message)}</td>
+            `;
+            
+            tr.addEventListener('click', () => showLogDetails(allLogs[index]));
+            return tr;
+        }
+
+        function renderAllLogs() {
             const tbody = document.getElementById('logsTable');
+            tbody.innerHTML = '';
             
-            if (isLoading && allLogs.length === 0) {
-                tbody.innerHTML = `
-                    <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">
-                        <div class="flex items-center justify-center gap-2">
-                            <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Loading logs...
-                        </div>
-                    </td></tr>
-                `;
-                return;
-            }
-            
-            if (!isLoading && allLogs.length === 0) {
+            if (allLogs.length === 0) {
                 tbody.innerHTML = `
                     <tr><td colspan="3" class="px-4 py-8 text-center text-gray-500">
                         No logs found
@@ -290,51 +322,22 @@
                 return;
             }
 
-            const html = allLogs.map((log, idx) => {
-                const levelClass = `level-${log.level}`;
-                
-                // Remove nanoseconds - JS only supports milliseconds
-                const timestamp = log.timestamp.replace(/(\.\d{3})\d+([\+\-])/, '$1$2');
-                const date = new Date(timestamp);
-                
-                const hours = String(date.getUTCHours()).padStart(2, '0');
-                const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-                const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-                const day = String(date.getUTCDate()).padStart(2, '0');
-                const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-                
-                const timeStr = `${hours}:${minutes}:${seconds} ${day}/${month}`;
-                const escapeHtml = (text) => {
-                    const div = document.createElement('div');
-                    div.textContent = text;
-                    return div.innerHTML;
-                };
-                
-                return `
-                    <tr class="log-row border-b border-gray-700 bg-gray-800" data-index="${idx}">
-                        <td class="px-2 py-2 text-xs text-gray-400 timestamp-col">${timeStr}</td>
-                        <td class="px-2 py-2 level-col">
-                            <span class="px-2 py-1 rounded text-xs font-semibold ${levelClass} whitespace-nowrap">
-                                ${log.level}
-                            </span>
-                        </td>
-                        <td class="px-2 py-2 text-gray-300 message-col break-words">${escapeHtml(log.message)}</td>
-                    </tr>
-                `;
-            }).join('');
-
-            if (append) {
-                tbody.insertAdjacentHTML('beforeend', html);
-            } else {
-                tbody.innerHTML = html;
-            }
-
-            document.querySelectorAll('.log-row').forEach(row => {
-                row.addEventListener('click', () => {
-                    const index = parseInt(row.dataset.index);
-                    showLogDetails(allLogs[index]);
-                });
+            const fragment = document.createDocumentFragment();
+            allLogs.forEach((log, idx) => {
+                fragment.appendChild(createLogRow(log, idx));
             });
+            tbody.appendChild(fragment);
+        }
+
+        function appendLogsToTable(logs, startIndex) {
+            const tbody = document.getElementById('logsTable');
+            const fragment = document.createDocumentFragment();
+            
+            logs.forEach((log, idx) => {
+                fragment.appendChild(createLogRow(log, startIndex + idx));
+            });
+            
+            tbody.appendChild(fragment);
         }
 
         function showLogDetails(log) {
